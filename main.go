@@ -98,14 +98,18 @@ func (bh *bodyHandler) handler() func(body []byte, ctx *goproxy.ProxyCtx) []byte
 			return body
 		}
 
+		var changedPreums bool
 		if bytes.Compare(bh.preums, preumsCandidate) != 0 {
 			bh.preums = preumsCandidate
-			log.Println("Changed preums")
-			bh.makeDict()
+			changedPreums = true
 		}
 
 		log.Printf("%d dups / %d chunks (%d / %d bytes) \n", dups, count, dupsbytes, countbytes)
-		log.Printf("Took %v ms\n", time.Since(start).Seconds()*1000)
+		log.Printf("Parsed response in %v ms\n", time.Since(start).Seconds()*1000)
+
+		if changedPreums {
+			bh.makeDict()
+		}
 
 		return body
 	}
