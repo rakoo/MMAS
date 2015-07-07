@@ -109,7 +109,6 @@ func (bh *bodyHandler) handler() func(body []byte, ctx *goproxy.ProxyCtx) []byte
 
 func main() {
 	proxy := goproxy.NewProxyHttpServer()
-	proxy.Verbose = true
 
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
