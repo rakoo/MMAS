@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
 	"time"
 
 	"camlistore.org/pkg/rollsum"
@@ -27,6 +29,7 @@ const (
 type bodyHandler struct {
 	db     *sql.DB
 	preums []byte
+	dict   []byte
 }
 
 func (bh *bodyHandler) handler() func(body []byte, ctx *goproxy.ProxyCtx) []byte {
@@ -98,6 +101,7 @@ func (bh *bodyHandler) handler() func(body []byte, ctx *goproxy.ProxyCtx) []byte
 		if bytes.Compare(bh.preums, preumsCandidate) != 0 {
 			bh.preums = preumsCandidate
 			log.Println("Changed preums")
+			bh.makeDict()
 		}
 
 		log.Printf("%d dups / %d chunks (%d / %d bytes) \n", dups, count, dupsbytes, countbytes)
@@ -105,6 +109,45 @@ func (bh *bodyHandler) handler() func(body []byte, ctx *goproxy.ProxyCtx) []byte
 
 		return body
 	}
+}
+
+func (bh *bodyHandler) makeDict() {
+	start := time.Now()
+	rows, err := bh.db.Query(`SELECT count, content FROM chunks ORDER BY count, content DESC`)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	allReaders := make([]io.Reader, 0)
+	for rows.Next() {
+		var count int
+		var content []byte
+		err := rows.Scan(&count, &content)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		for i := 0; i < count; i++ {
+			allReaders = append(allReaders, bytes.NewReader(content))
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Println(err)
+	}
+
+	cmd := exec.Command("vcdiff", "encode", "-dictionary", "/dev/zero", "-target_matches")
+	var dict bytes.Buffer
+	cmd.Stdout = &dict
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = io.MultiReader(allReaders...)
+	if err = cmd.Run(); err != nil {
+		log.Println(err)
+	}
+
+	bh.dict = dict.Bytes()
+	log.Printf("Generated a %d bytes dict in %f msecs\n", len(bh.dict), time.Since(start).Seconds()*1000)
 }
 
 func main() {
