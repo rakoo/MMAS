@@ -81,12 +81,12 @@ func main() {
 			buf = append(buf, b)
 			if rs.OnSplitWithBits(5) {
 				h := sha1.Sum(buf)
-				buf = buf[:0]
 				_, err := stmt.Exec(buf, h[:], h[:])
 				if err != nil {
 					log.Println(err)
 					return body
 				}
+				buf = buf[:0]
 			}
 		}
 
