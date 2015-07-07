@@ -92,20 +92,20 @@ func main() {
 
 		tx.Commit()
 
-		var count int
-		err = db.QueryRow(`SELECT COUNT(*) FROM chunks`).Scan(&count)
+		var count, countbytes int
+		err = db.QueryRow(`SELECT COUNT(*), SUM(LENGTH(content)) FROM chunks`).Scan(&count, &countbytes)
 		if err != nil {
 			log.Println(err)
 			return body
 		}
 
-		var dups int
-		err = db.QueryRow(`SELECT COUNT(*) FROM chunks WHERE count > 1`).Scan(&dups)
+		var dups, dupsbytes int
+		err = db.QueryRow(`SELECT COUNT(*), SUM(LENGTH(content)) FROM chunks WHERE count > 1`).Scan(&dups, &dupsbytes)
 		if err != nil {
 			log.Println(err)
 			return body
 		}
-		log.Printf("%d dups / %d chunks\n", dups, count)
+
 		var preumsCandidate []byte
 		err = db.QueryRow(`SELECT hash FROM chunks ORDER BY count, hash DESC LIMIT 1`).Scan(&preumsCandidate)
 		if err != nil {
@@ -117,9 +117,12 @@ func main() {
 			preums = preumsCandidate
 			log.Println("Changed preums")
 		}
+
+		log.Printf("%d dups / %d chunks (%d / %d bytes) \n", dups, count, dupsbytes, countbytes)
 		log.Printf("Took %v ms\n", time.Since(start).Seconds()*1000)
 		return body
 	}))
 
+	log.Println("Let's go !")
 	log.Fatal(http.ListenAndServe(":8080", proxy))
 }
