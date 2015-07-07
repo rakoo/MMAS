@@ -46,6 +46,8 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var preums []byte
+
 	proxy.OnResponse().Do(goproxy.HandleBytes(func(body []byte, ctx *goproxy.ProxyCtx) []byte {
 		start := time.Now()
 
@@ -104,6 +106,17 @@ func main() {
 			return body
 		}
 		log.Printf("%d dups / %d chunks\n", dups, count)
+		var preumsCandidate []byte
+		err = db.QueryRow(`SELECT hash FROM chunks ORDER BY count, hash DESC LIMIT 1`).Scan(&preumsCandidate)
+		if err != nil {
+			log.Println(err)
+			return body
+		}
+
+		if bytes.Compare(preums, preumsCandidate) != 0 {
+			preums = preumsCandidate
+			log.Println("Changed preums")
+		}
 		log.Printf("Took %v ms\n", time.Since(start).Seconds()*1000)
 		return body
 	}))
