@@ -24,38 +24,20 @@ const (
 	);`
 )
 
-func main() {
-	proxy := goproxy.NewProxyHttpServer()
-	proxy.Verbose = true
+type bodyHandler struct {
+	db     *sql.DB
+	preums []byte
+}
 
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err = db.Ping(); err != nil {
-		log.Fatal(err)
-	}
-
-	_, err = db.Exec(`CREATE TABLE chunks (
-		content BLOB,
-		hash BLOB UNIQUE ON CONFLICT REPLACE,
-		count INTEGER
-	);`)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var preums []byte
-
-	proxy.OnResponse().Do(goproxy.HandleBytes(func(body []byte, ctx *goproxy.ProxyCtx) []byte {
+func (bh *bodyHandler) handler() func(body []byte, ctx *goproxy.ProxyCtx) []byte {
+	return func(body []byte, ctx *goproxy.ProxyCtx) []byte {
 		start := time.Now()
 
 		rs := rollsum.New()
 		rd := bytes.NewReader(body)
 		buf := make([]byte, 0)
 
-		tx, err := db.Begin()
+		tx, err := bh.db.Begin()
 		if err != nil {
 			log.Println(err)
 			return body
@@ -93,35 +75,64 @@ func main() {
 		tx.Commit()
 
 		var count, countbytes int
-		err = db.QueryRow(`SELECT COUNT(*), SUM(LENGTH(content)) FROM chunks`).Scan(&count, &countbytes)
+		err = bh.db.QueryRow(`SELECT COUNT(*), SUM(LENGTH(content)) FROM chunks`).Scan(&count, &countbytes)
 		if err != nil {
 			log.Println(err)
 			return body
 		}
 
 		var dups, dupsbytes int
-		err = db.QueryRow(`SELECT COUNT(*), SUM(LENGTH(content)) FROM chunks WHERE count > 1`).Scan(&dups, &dupsbytes)
+		err = bh.db.QueryRow(`SELECT COUNT(*), SUM(LENGTH(content)) FROM chunks WHERE count > 1`).Scan(&dups, &dupsbytes)
 		if err != nil {
 			log.Println(err)
 			return body
 		}
 
 		var preumsCandidate []byte
-		err = db.QueryRow(`SELECT hash FROM chunks ORDER BY count, hash DESC LIMIT 1`).Scan(&preumsCandidate)
+		err = bh.db.QueryRow(`SELECT hash FROM chunks ORDER BY count, hash DESC LIMIT 1`).Scan(&preumsCandidate)
 		if err != nil {
 			log.Println(err)
 			return body
 		}
 
-		if bytes.Compare(preums, preumsCandidate) != 0 {
-			preums = preumsCandidate
+		if bytes.Compare(bh.preums, preumsCandidate) != 0 {
+			bh.preums = preumsCandidate
 			log.Println("Changed preums")
 		}
 
 		log.Printf("%d dups / %d chunks (%d / %d bytes) \n", dups, count, dupsbytes, countbytes)
 		log.Printf("Took %v ms\n", time.Since(start).Seconds()*1000)
+
 		return body
-	}))
+	}
+}
+
+func main() {
+	proxy := goproxy.NewProxyHttpServer()
+	proxy.Verbose = true
+
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err = db.Ping(); err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = db.Exec(`CREATE TABLE chunks (
+		content BLOB,
+		hash BLOB UNIQUE ON CONFLICT REPLACE,
+		count INTEGER
+	);`)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	bh := &bodyHandler{
+		db: db,
+	}
+	proxy.OnResponse().Do(goproxy.HandleBytes(bh.handler()))
 
 	log.Println("Let's go !")
 	log.Fatal(http.ListenAndServe(":8080", proxy))
