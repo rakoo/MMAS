@@ -214,7 +214,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	_, err = db.Exec(`CREATE TABLE chunks (
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS chunks (
 		content BLOB,
 		hash BLOB UNIQUE ON CONFLICT REPLACE,
 		count INTEGER
