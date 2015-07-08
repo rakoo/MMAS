@@ -37,6 +37,20 @@ type bodyHandler struct {
 
 func (bh *bodyHandler) handler() func(body []byte, ctx *goproxy.ProxyCtx) []byte {
 	return func(body []byte, ctx *goproxy.ProxyCtx) []byte {
+		newBody := body
+		var err error
+
+		st, err := os.Stat(dictPath)
+		if (err == nil || os.IsExist(err)) && st.Size() > 0 {
+			newBody, err = bh.makeDelta(body)
+			if err != nil {
+				log.Println(err)
+				return body
+			}
+		} else if err != nil && !os.IsNotExist(err) {
+			log.Println(err)
+			return body
+		}
 
 		changedPreums, err := bh.parseResponse(body)
 		if err != nil {
@@ -48,8 +62,29 @@ func (bh *bodyHandler) handler() func(body []byte, ctx *goproxy.ProxyCtx) []byte
 			bh.makeDict()
 		}
 
-		return body
+		return newBody
 	}
+}
+
+func (bh *bodyHandler) makeDelta(body []byte) (newBody []byte, err error) {
+	startDelta := time.Now()
+
+	cmd := exec.Command("vcdiff", "encode", "-dictionary", dictPath, "-interleaved", "-checksum", "-stats")
+	cmd.Stdin = bytes.NewReader(body)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+
+	log.Printf("[VCDIFF-DELTA] %s\n", stderr.String())
+
+	log.Printf("Generated delta in %f msecs\n", time.Since(startDelta).Seconds()*1000)
+	return out.Bytes(), nil
 }
 
 func (bh *bodyHandler) parseResponse(body []byte) (changedPreums bool, err error) {
