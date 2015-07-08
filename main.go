@@ -28,6 +28,7 @@ const (
 
 const (
 	dictPath   = "/var/tmp/mmas-dict"
+	chunksPath = "/var/tmp/mmas-chunks"
 )
 
 type bodyHandler struct {
@@ -125,7 +126,9 @@ func (bh *bodyHandler) parseResponse(body []byte) (changedPreums bool, err error
 		}
 	}
 
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
 
 	var count, countbytes int
 	err = bh.db.QueryRow(`SELECT COUNT(*), SUM(LENGTH(content)) FROM chunks`).Scan(&count, &countbytes)
@@ -150,7 +153,7 @@ func (bh *bodyHandler) parseResponse(body []byte) (changedPreums bool, err error
 		changedPreums = true
 	}
 
-	log.Printf("%d dups / %d chunks (%d / %d bytes) \n", dups, count, dupsbytes, countbytes)
+	//log.Printf("%d dups / %d chunks (%d / %d bytes) \n", dups, count, dupsbytes, countbytes)
 	log.Printf("Parsed response in %v ms\n", time.Since(startParse).Seconds()*1000)
 
 	return changedPreums, nil
