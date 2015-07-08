@@ -223,8 +223,15 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var preums []byte
+	err = db.QueryRow(`SELECT hash FROM chunks ORDER BY count, hash DESC LIMIT 1`).Scan(&preums)
+	if err != nil && err != sql.ErrNoRows {
+		log.Fatal(err)
+	}
+
 	bh := &bodyHandler{
-		db: db,
+		db:     db,
+		preums: preums,
 	}
 	proxy.OnResponse().Do(goproxy.HandleBytes(bh.handler()))
 
