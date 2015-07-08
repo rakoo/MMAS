@@ -26,10 +26,13 @@ const (
 	);`
 )
 
+const (
+	dictPath   = "/var/tmp/mmas-dict"
+)
+
 type bodyHandler struct {
 	db     *sql.DB
 	preums []byte
-	dict   []byte
 }
 
 func (bh *bodyHandler) handler() func(body []byte, ctx *goproxy.ProxyCtx) []byte {
@@ -142,19 +145,23 @@ func (bh *bodyHandler) makeDict() {
 
 	if err := rows.Err(); err != nil {
 		log.Println(err)
+		return
 	}
 
-	cmd := exec.Command("vcdiff", "encode", "-dictionary", "/dev/zero", "-target_matches")
-	var dict bytes.Buffer
-	cmd.Stdout = &dict
+	cmd := exec.Command("vcdiff", "encode", "-dictionary", "/dev/zero", "-target_matches", "-delta", dictPath)
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = io.MultiReader(allReaders...)
 	if err = cmd.Run(); err != nil {
 		log.Println(err)
+		return
 	}
 
-	bh.dict = dict.Bytes()
-	log.Printf("Generated a %d bytes dict in %f msecs\n", len(bh.dict), time.Since(start).Seconds()*1000)
+	st, err := os.Stat(dictPath)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	log.Printf("Generated a %d bytes dict in %f msecs\n", st.Size(), time.Since(start).Seconds()*1000)
 }
 
 func main() {
