@@ -47,15 +47,13 @@ func (bh *bodyHandler) makeDict() error {
 			return err
 		}
 
-		if len(bh.dictFileName) > 0 {
-			oldName := bh.dictFileName
-
+		oldName := bh.dictFileName
+		bh.dictFileName = newFileName
+		if len(oldName) > 0 {
 			err := os.Remove(oldName)
 			if err != nil {
 				return err
 			}
-		} else {
-			bh.dictFileName = newFileName
 		}
 		return nil
 	}()
