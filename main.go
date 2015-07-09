@@ -121,7 +121,7 @@ func main() {
 	if len(fis) > 0 {
 		bh.dictFileName = path.Join(DICT_PATH, fis[0].Name())
 		for _, fi := range fis[1:] {
-			err := os.Remove(fi.Name())
+			err := os.Remove(path.Join(DICT_PATH, fi.Name()))
 			if err != nil {
 				log.Fatal(err)
 			}

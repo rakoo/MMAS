@@ -10,70 +10,53 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
 	"path"
 	"time"
 )
 
 func (bh *bodyHandler) makeDict() error {
 	start := time.Now()
-	rows, err := bh.db.Query(`SELECT count, content FROM chunks ORDER BY count, content DESC`)
-	if err != nil {
-		return err
+	rows, err0 := bh.db.Query(`SELECT content FROM chunks ORDER BY count, content DESC`)
+	if err0 != nil {
+		return err0
 	}
 
-	allReaders := make([]io.Reader, 0)
-	for rows.Next() {
-		var count int
-		var content []byte
-		err := rows.Scan(&count, &content)
+	err := func() error {
+		var buf bytes.Buffer
+		hash := sha256.New()
+		mw := io.MultiWriter(&buf, hash)
+		for rows.Next() {
+			var content []byte
+			err := rows.Scan(&content)
+			if err != nil {
+				return err
+			}
+			_, err = mw.Write(content)
+			if err != nil {
+				return err
+			}
+		}
+
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		newFileName := path.Join(DICT_PATH, hex.EncodeToString(hash.Sum(nil)))
+		err := ioutil.WriteFile(newFileName, buf.Bytes(), 0644)
 		if err != nil {
 			return err
 		}
-		for i := 0; i < count; i++ {
-			allReaders = append(allReaders, bytes.NewReader(content))
+
+		if len(bh.dictFileName) > 0 {
+			oldName := bh.dictFileName
+
+			err := os.Remove(oldName)
+			if err != nil {
+				return err
+			}
+		} else {
+			bh.dictFileName = newFileName
 		}
-	}
-
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	tmp, err := ioutil.TempFile(DICT_PATH, "mmas-dict-")
-	if err != nil {
-		return err
-	}
-	tmp.Close()
-
-	cmd := exec.Command("vcdiff", "encode", "-dictionary", "/dev/zero", "-target_matches", "-delta", tmp.Name())
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = io.MultiReader(allReaders...)
-	if err = cmd.Run(); err != nil {
-		return err
-	}
-
-	// Making defer work for us
-	var hash []byte
-	var size int64
-	err = func() error {
-		f, err := os.Open(tmp.Name())
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-
-		sha := sha256.New()
-		_, err = io.Copy(sha, f)
-		if err != nil {
-			return err
-		}
-		hash = sha.Sum(nil)
-
-		st, err := f.Stat()
-		if err != nil {
-			return err
-		}
-		size = st.Size()
 		return nil
 	}()
 
@@ -81,21 +64,13 @@ func (bh *bodyHandler) makeDict() error {
 		return err
 	}
 
-	newFileName := path.Join(DICT_PATH, hex.EncodeToString(hash))
-	err = os.Rename(tmp.Name(), newFileName)
+	st, err := os.Stat(bh.dictFileName)
 	if err != nil {
+		log.Println("Here:", bh.dictFileName)
 		return err
 	}
 
-	if len(bh.dictFileName) > 0 {
-		err = os.Remove(bh.dictFileName)
-		if err != nil {
-			return err
-		}
-		bh.dictFileName = newFileName
-	}
-
-	log.Printf("Generated a %d bytes dict in %f msecs\n", size, time.Since(start).Seconds()*1000)
+	log.Printf("Generated a %d bytes dict in %f msecs\n", st.Size(), time.Since(start).Seconds()*1000)
 	return nil
 }
 
