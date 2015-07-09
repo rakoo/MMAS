@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -95,4 +97,45 @@ func (bh *bodyHandler) makeDict() error {
 
 	log.Printf("Generated a %d bytes dict in %f msecs\n", size, time.Since(start).Seconds()*1000)
 	return nil
+}
+
+func (bh bodyHandler) makeSdchDict(hostPort, dictName string) (dict io.ReadSeeker, modTime time.Time, err error) {
+
+	if dictName != path.Base(bh.dictFileName) {
+		return nil, time.Time{}, fmt.Errorf("Not found!")
+	}
+
+	host, port, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	if port == "" {
+		port = "80"
+	}
+
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "Domain: %s\n", host)
+	fmt.Fprint(&buf, "Path: /\n")
+	fmt.Fprint(&buf, "Format-Version: 1.0\n")
+	fmt.Fprintf(&buf, "Port: %s\n", port)
+	fmt.Fprint(&buf, "Max-Age: 86400\n\n")
+
+	dictFile, err := os.Open(bh.dictFileName)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	defer dictFile.Close()
+	_, err = io.Copy(&buf, dictFile)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	st, err := dictFile.Stat()
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+
+	return bytes.NewReader(buf.Bytes()), st.ModTime(), nil
+}
+
+type sdchDictHeader struct {
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strings"
 
 	"github.com/elazarl/goproxy"
 
@@ -126,6 +127,34 @@ func main() {
 			}
 		}
 	}
+
+	prevNonProxyHandler := proxy.NonproxyHandler
+	proxy.NonproxyHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/_dictionary") {
+			dictQuery := strings.Replace(r.URL.Path, "/_dictionary/", "", 1)
+			parts := strings.Split(dictQuery, "/")
+			if len(parts) != 2 {
+				log.Println("Wrong query:", dictQuery)
+				http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+				return
+			}
+
+			hostPort := parts[0]
+			dictName := parts[1]
+
+			dict, modTime, err := bh.makeSdchDict(hostPort, dictName)
+			if err != nil {
+				log.Println(err)
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/x-sdch/dictionary")
+			http.ServeContent(w, r, "", modTime, dict)
+			return
+		}
+		prevNonProxyHandler.ServeHTTP(w, r)
+	})
 
 	log.Println("Let's go !")
 	log.Fatal(http.ListenAndServe(":8080", proxy))
