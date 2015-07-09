@@ -66,7 +66,6 @@ func (bh *bodyHandler) makeDict() error {
 
 	st, err := os.Stat(bh.dictFileName)
 	if err != nil {
-		log.Println("Here:", bh.dictFileName)
 		return err
 	}
 

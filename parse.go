@@ -52,18 +52,6 @@ func (bh *bodyHandler) parseResponse(body []byte) (changedPreums bool, err error
 		return false, err
 	}
 
-	var count, countbytes int
-	err = bh.db.QueryRow(`SELECT COUNT(*), SUM(LENGTH(content)) FROM chunks`).Scan(&count, &countbytes)
-	if err != nil {
-		return false, err
-	}
-
-	var dups, dupsbytes int
-	err = bh.db.QueryRow(`SELECT COUNT(*), SUM(LENGTH(content)) FROM chunks WHERE count > 1`).Scan(&dups, &dupsbytes)
-	if err != nil {
-		return false, err
-	}
-
 	var preumsCandidate []byte
 	err = bh.db.QueryRow(`SELECT hash FROM chunks ORDER BY count, hash DESC LIMIT 1`).Scan(&preumsCandidate)
 	if err != nil {
@@ -75,7 +63,6 @@ func (bh *bodyHandler) parseResponse(body []byte) (changedPreums bool, err error
 		changedPreums = true
 	}
 
-	//log.Printf("%d dups / %d chunks (%d / %d bytes) \n", dups, count, dupsbytes, countbytes)
 	log.Printf("Parsed response in %v ms\n", time.Since(startParse).Seconds()*1000)
 
 	return changedPreums, nil
