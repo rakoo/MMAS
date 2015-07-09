@@ -2,24 +2,43 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/hex"
+	"fmt"
 	"log"
 	"os/exec"
+	"path"
 	"time"
 )
 
 func (bh *bodyHandler) makeDiff(body []byte) (newBody []byte, err error) {
 	startDelta := time.Now()
 
+	fullDictHash := path.Base(bh.dictFileName)
+	rawServerId, err := hex.DecodeString(fullDictHash)
+	fmt.Println(len(rawServerId))
+	serverId := base64.URLEncoding.EncodeToString(rawServerId[6:12])
+	if err != nil {
+		return body, err
+	}
+
+	var out bytes.Buffer
+	if _, err = out.WriteString(serverId); err != nil {
+		return body, err
+	}
+	if err := out.WriteByte(byte(0)); err != nil {
+		return body, err
+	}
+
 	cmd := exec.Command("vcdiff", "encode", "-dictionary", bh.dictFileName, "-interleaved", "-checksum", "-stats")
 	cmd.Stdin = bytes.NewReader(body)
-	var out bytes.Buffer
 	cmd.Stdout = &out
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return nil, err
+		return body, err
 	}
 
 	log.Printf("[VCDIFF-DELTA] %s\n", stderr.String())
