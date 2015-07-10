@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
+	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -34,38 +37,61 @@ type bodyHandler struct {
 	preums       []byte
 }
 
-func (bh *bodyHandler) handler() func(body []byte, ctx *goproxy.ProxyCtx) []byte {
-	return func(body []byte, ctx *goproxy.ProxyCtx) []byte {
-		newBody := body
-		var err error
+func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+	acceptedEncodings := ctx.Req.Header["Accept-Encoding"]
+	canSdch := false
+	for _, enc := range acceptedEncodings {
+		if enc == "sdch" {
+			canSdch = true
+			break
+		}
+	}
+	if !canSdch {
+		return r
+	}
 
+	oldBody := r.Body
+
+	newBody, err := func() (io.ReadCloser, error) {
+		content, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		var newBody io.ReadCloser
 		if len(bh.dictFileName) > 0 {
-			compressedBody, err := bh.makeDiff(body)
+			compressedBodyContent, err := bh.makeDiff(content)
 			if err != nil {
 				log.Println("[MAKEDIFF]", err)
-				return body
+				return nil, err
 			}
-			if len(compressedBody) < len(body) {
-				newBody = compressedBody
+			if len(compressedBodyContent) < len(content) {
+				newBody = ioutil.NopCloser(bytes.NewBuffer(compressedBodyContent))
 			}
 		}
 
-		changedPreums, err := bh.parseResponse(body)
+		changedPreums, err := bh.parseResponse(content)
 		if err != nil {
-			log.Println(err)
-			return body
+			return nil, err
 		}
 
 		if changedPreums {
 			err = bh.makeDict()
 			if err != nil {
-				log.Println(err)
-				return body
+				return nil, err
 			}
 		}
 
-		return newBody
+		return newBody, nil
+	}()
+
+	if err != nil {
+		log.Println(err)
+		r.Body = oldBody
+	} else {
+		r.Body = newBody
 	}
+	return r
 }
 
 func main() {
@@ -100,7 +126,7 @@ func main() {
 		db:     db,
 		preums: preums,
 	}
-	proxy.OnResponse().Do(goproxy.HandleBytes(bh.handler()))
+	proxy.OnResponse(goproxy.ContentTypeIs("text/html")).DoFunc(bh.handle)
 
 	err = os.Mkdir(DICT_PATH, 0755)
 	if err != nil && !os.IsExist(err) {

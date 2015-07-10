@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
 	"log"
 	"os/exec"
 	"path"
@@ -16,7 +15,6 @@ func (bh *bodyHandler) makeDiff(body []byte) (newBody []byte, err error) {
 
 	fullDictHash := path.Base(bh.dictFileName)
 	rawServerId, err := hex.DecodeString(fullDictHash)
-	fmt.Println(len(rawServerId))
 	serverId := base64.URLEncoding.EncodeToString(rawServerId[6:12])
 	if err != nil {
 		return body, err
