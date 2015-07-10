@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -38,6 +39,16 @@ type bodyHandler struct {
 }
 
 func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+
+	// Assuming no ipv6 here
+	hostport := r.Request.Host
+	if !strings.Contains(r.Request.Host, ":") {
+		hostport = hostport + ":80"
+	}
+	dictName := path.Base(bh.dictFileName)
+	dictUrl := fmt.Sprintf("http://localhost:8080/_dictionary/%s/%s", hostport, dictName)
+	r.Header.Set("Get-Dictionary", dictUrl)
+
 	acceptedEncodings := ctx.Req.Header["Accept-Encoding"]
 	canSdch := false
 	for _, enc := range acceptedEncodings {
@@ -50,8 +61,9 @@ func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Res
 		return r
 	}
 
-	oldBody := r.Body
+	r.Header.Set("Content-Type", "sdch")
 
+	oldBody := r.Body
 	newBody, err := func() (io.ReadCloser, error) {
 		content, err := ioutil.ReadAll(r.Body)
 		if err != nil {
