@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -39,76 +41,87 @@ type bodyHandler struct {
 }
 
 func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+	content, err := ioutil.ReadAll(r.Body)
+	r.Body = ioutil.NopCloser(bytes.NewReader(content))
 
-	// Assuming no ipv6 here
-	hostport := r.Request.Host
-	if !strings.Contains(r.Request.Host, ":") {
-		hostport = hostport + ":80"
-	}
-	dictName := path.Base(bh.dictFileName)
-	dictUrl := fmt.Sprintf("http://localhost:8080/_dictionary/%s/%s", hostport, dictName)
-	r.Header.Set("Get-Dictionary", dictUrl)
-
-	acceptedEncodings := ctx.Req.Header["Accept-Encoding"]
-	canSdch := false
-	for _, enc := range acceptedEncodings {
-		if enc == "sdch" {
-			canSdch = true
-			break
-		}
-	}
-	if !canSdch {
+	if err != nil {
 		return r
 	}
 
-	r.Header.Set("Content-Type", "sdch")
+	if len(bh.dictFileName) > 0 {
 
-	oldBody := r.Body
-	newBody, err := func() (io.ReadCloser, error) {
-		content, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			return nil, err
+		// Build Get-Dictionary header
+		hostport := r.Request.Host
+
+		// Assuming no ipv6 here
+		if !strings.Contains(r.Request.Host, ":") {
+			hostport = hostport + ":80"
 		}
+		dictName := path.Base(bh.dictFileName)
+		dictUrl := fmt.Sprintf("http://localhost:8080/_dictionary/%s/%s", hostport, dictName)
+		r.Header.Set("Get-Dictionary", dictUrl)
 
-		var newBody io.ReadCloser
-		if len(bh.dictFileName) > 0 {
+		// Check if client can SDCH
+		acceptedEncodings := ctx.Req.Header["Accept-Encoding"]
+		canSdch := false
+		for _, enc := range acceptedEncodings {
+			if enc == "sdch" {
+				canSdch = true
+				break
+			}
+		}
+		if canSdch {
+			// Like Chromium, we only take the first one
+			availDict := ctx.Req.Header.Get("Avail-Dictionary")
+			uaId, err := base64.URLEncoding.DecodeString(availDict)
+			if err != nil {
+				log.Println(err)
+				return r
+			}
+
+			rawDict, err := hex.DecodeString(dictName)
+			if err != nil {
+				log.Println(err)
+				return r
+			}
+			if bytes.Compare(rawDict[:6], uaId) != 0 {
+				return r
+			}
+
+			var newBody io.ReadCloser
 			compressedBodyContent, err := bh.makeDiff(content)
 			if err != nil {
 				log.Println("[MAKEDIFF]", err)
-				return nil, err
+				return r
 			}
 			if len(compressedBodyContent) < len(content) {
+				r.Header.Set("Content-Type", "sdch")
 				newBody = ioutil.NopCloser(bytes.NewBuffer(compressedBodyContent))
+				r.Body = newBody
 			}
 		}
+	}
 
-		changedPreums, err := bh.parseResponse(content)
-		if err != nil {
-			return nil, err
-		}
-
-		if changedPreums {
-			err = bh.makeDict()
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		return newBody, nil
-	}()
-
+	// TODO: Do the rest asynchronously
+	changedPreums, err := bh.parseResponse(content)
 	if err != nil {
 		log.Println(err)
-		r.Body = oldBody
-	} else {
-		r.Body = newBody
+		return r
 	}
+
+	if changedPreums {
+		err = bh.makeDict()
+		if err != nil {
+			log.Println(err)
+			return r
+		}
+	}
+
 	return r
 }
 
 func main() {
 	proxy := goproxy.NewProxyHttpServer()
-	proxy.Verbose = true
 
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
