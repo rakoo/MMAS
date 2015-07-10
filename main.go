@@ -34,6 +34,11 @@ const (
 	CHUNKS_PATH = "/var/tmp/mmas-chunks"
 )
 
+var (
+	statsBytesSent     uint64
+	statsBytesOriginal uint64
+)
+
 type bodyHandler struct {
 	db           *sql.DB
 	dictFileName string
@@ -98,6 +103,12 @@ func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Res
 				r.Header.Set("Content-Type", "sdch")
 				newBody = ioutil.NopCloser(bytes.NewBuffer(compressedBodyContent))
 				r.Body = newBody
+
+				statsBytesSent += uint64(len(compressedBodyContent))
+				statsBytesOriginal += uint64(len(content))
+
+				saved := 100 * (1 - float64(statsBytesSent)/float64(statsBytesOriginal))
+				log.Printf("Reduced bytes on wire by %f %%\n", saved)
 			}
 		}
 	}
@@ -216,3 +227,14 @@ type byDateInv []os.FileInfo
 func (b byDateInv) Len() int           { return len(b) }
 func (b byDateInv) Less(i, j int) bool { return b[i].ModTime().After(b[j].ModTime()) }
 func (b byDateInv) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
+
+func human(in float64) string {
+	switch {
+	case in > 1024*1024:
+		return fmt.Sprintf("%.2f MB", in/float64(1024*1024))
+	case in > 1024:
+		return fmt.Sprintf("%.2f kB", in/float64(1024))
+	default:
+		return fmt.Sprintf("%.2f B", in)
+	}
+}
