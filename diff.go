@@ -28,8 +28,9 @@ func (bh *bodyHandler) makeDiff(body []byte) (newBody []byte, err error) {
 		return body, err
 	}
 
-	cmd := exec.Command("vcdiff", "encode", "-dictionary", bh.dictFileName, "-interleaved", "-checksum", "-stats")
+	cmd := exec.Command("vcdiff", "delta", "-dictionary", bh.dictFileName, "-interleaved", "-checksum", "-stats")
 	cmd.Stdin = bytes.NewReader(body)
+
 	cmd.Stdout = &out
 
 	var stderr bytes.Buffer
