@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -12,6 +13,10 @@ import (
 	"os"
 	"path"
 	"time"
+)
+
+var (
+	errNoChange = errors.New("No change")
 )
 
 func (bh *bodyHandler) makeDict() error {
@@ -47,6 +52,10 @@ func (bh *bodyHandler) makeDict() error {
 			return err
 		}
 
+		if newFileName == bh.dictFileName {
+			return errNoChange
+		}
+
 		oldName := bh.dictFileName
 		bh.dictFileName = newFileName
 		if len(oldName) > 0 {
@@ -57,6 +66,10 @@ func (bh *bodyHandler) makeDict() error {
 		}
 		return nil
 	}()
+
+	if err == errNoChange {
+		return nil
+	}
 
 	if err != nil {
 		return err

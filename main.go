@@ -42,7 +42,7 @@ var (
 type bodyHandler struct {
 	db           *sql.DB
 	dictFileName string
-	preums       []byte
+	topChunk     []byte
 }
 
 func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
@@ -114,13 +114,13 @@ func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Res
 	}
 
 	// TODO: Do the rest asynchronously
-	changedPreums, err := bh.parseResponse(content)
+	changed, err := bh.parseResponse(content)
 	if err != nil {
 		log.Println(err)
 		return r
 	}
 
-	if changedPreums {
+	if changed {
 		err = bh.makeDict()
 		if err != nil {
 			log.Println(err)
@@ -152,15 +152,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var preums []byte
-	err = db.QueryRow(`SELECT hash FROM chunks ORDER BY count, hash DESC LIMIT 1`).Scan(&preums)
-	if err != nil && err != sql.ErrNoRows {
-		log.Fatal(err)
-	}
-
 	bh := &bodyHandler{
-		db:     db,
-		preums: preums,
+		db: db,
 	}
 	proxy.OnResponse(goproxy.ContentTypeIs("text/html")).DoFunc(bh.handle)
 

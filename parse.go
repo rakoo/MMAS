@@ -10,7 +10,7 @@ import (
 	"camlistore.org/pkg/rollsum"
 )
 
-func (bh *bodyHandler) parseResponse(body []byte) (changedPreums bool, err error) {
+func (bh *bodyHandler) parseResponse(body []byte) (changed bool, err error) {
 	startParse := time.Now()
 
 	rs := rollsum.New()
@@ -52,18 +52,32 @@ func (bh *bodyHandler) parseResponse(body []byte) (changedPreums bool, err error
 		return false, err
 	}
 
-	var preumsCandidate []byte
-	err = bh.db.QueryRow(`SELECT hash FROM chunks ORDER BY count, hash DESC LIMIT 1`).Scan(&preumsCandidate)
+	log.Printf("Parsed response in %v ms\n", time.Since(startParse).Seconds()*1000)
+
+	// Heuristic for changed: if the old top chunk is not in the new
+	// first 10, consider the current dictionary as old
+	top10Rows, err := bh.db.Query(`SELECT hash FROM chunks ORDER BY count, hash DESC LIMIT 10`)
 	if err != nil {
 		return false, err
 	}
 
-	if bytes.Compare(bh.preums, preumsCandidate) != 0 {
-		bh.preums = preumsCandidate
-		changedPreums = true
+	top10 := make([][]byte, 0, 10)
+	for top10Rows.Next() {
+		var hash []byte
+		err := top10Rows.Scan(&hash)
+		if err != nil {
+			return false, err
+		}
+	}
+	if err := top10Rows.Err(); err != nil {
+		return false, err
 	}
 
-	log.Printf("Parsed response in %v ms\n", time.Since(startParse).Seconds()*1000)
+	for _, newInTop := range top10 {
+		if bytes.Compare(bh.topChunk, newInTop) == 0 {
+			return true, nil
+		}
+	}
 
-	return changedPreums, nil
+	return false, nil
 }
