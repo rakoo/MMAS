@@ -13,7 +13,7 @@ import (
 func (bh *bodyHandler) makeDiff(body []byte) (newBody []byte, err error) {
 	startDelta := time.Now()
 
-	fullDictHash := path.Base(bh.dictFileName)
+	fullDictHash := path.Base(bh.DictName())
 	rawServerId, err := hex.DecodeString(fullDictHash)
 	serverId := base64.URLEncoding.EncodeToString(rawServerId[6:12])
 	if err != nil {
@@ -28,7 +28,7 @@ func (bh *bodyHandler) makeDiff(body []byte) (newBody []byte, err error) {
 		return body, err
 	}
 
-	cmd := exec.Command("vcdiff", "delta", "-dictionary", bh.dictFileName, "-interleaved", "-checksum", "-stats")
+	cmd := exec.Command("vcdiff", "delta", "-dictionary", bh.DictName(), "-interleaved", "-checksum", "-stats")
 	cmd.Stdin = bytes.NewReader(body)
 
 	cmd.Stdout = &out

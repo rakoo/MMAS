@@ -10,6 +10,15 @@ import (
 	"camlistore.org/pkg/rollsum"
 )
 
+const (
+	sqlUpSert = `
+	INSERT OR REPLACE INTO chunks VALUES (
+		?,
+		?,
+		COALESCE(1 + (SELECT count FROM chunks WHERE hash = ?), 1)
+	);`
+)
+
 func (bh *bodyHandler) parseResponse(body []byte) (changed bool, err error) {
 	startParse := time.Now()
 
@@ -68,13 +77,21 @@ func (bh *bodyHandler) parseResponse(body []byte) (changed bool, err error) {
 		if err != nil {
 			return false, err
 		}
+		top10 = append(top10, hash)
 	}
 	if err := top10Rows.Err(); err != nil {
 		return false, err
 	}
 
+	log.Println(len(bh.topChunk), len(top10))
+	if len(bh.topChunk) == 0 && len(top10) > 0 {
+		bh.topChunk = top10[0]
+		return true, nil
+	}
+
 	for _, newInTop := range top10 {
 		if bytes.Compare(bh.topChunk, newInTop) == 0 {
+			bh.topChunk = newInTop
 			return true, nil
 		}
 	}

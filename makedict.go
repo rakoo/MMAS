@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -19,24 +20,48 @@ var (
 	errNoChange = errors.New("No change")
 )
 
-func (bh *bodyHandler) makeDict() error {
+func (bh *bodyHandler) makeDict(reqHost string) error {
+	log.Println("Will make dict")
 	start := time.Now()
 	rows, err0 := bh.db.Query(`SELECT content FROM chunks ORDER BY count, content DESC`)
 	if err0 != nil {
 		return err0
 	}
 
+	var host, port string
+	// Assuming no ipv6 here
+	if strings.Contains(reqHost, ":") {
+		var err error
+		host, port, err = net.SplitHostPort(reqHost)
+		if err != nil {
+			return err
+		}
+	} else {
+		host = reqHost
+		port = "80"
+	}
+
 	err := func() error {
-		var buf bytes.Buffer
 		hash := sha256.New()
-		mw := io.MultiWriter(&buf, hash)
+
+		var headerBuf bytes.Buffer
+		headerMw := io.MultiWriter(&headerBuf, hash)
+		host = "reddit.com"
+		fmt.Fprintf(headerMw, "Domain: .%s\n", host)
+		fmt.Fprint(headerMw, "Path: /\n")
+		fmt.Fprint(headerMw, "Format-Version: 1.0\n")
+		fmt.Fprintf(headerMw, "Port: %s\n", port)
+		fmt.Fprint(headerMw, "Max-Age: 86400\n\n")
+
+		var contentBuf bytes.Buffer
+		contentMw := io.MultiWriter(&contentBuf, hash)
 		for rows.Next() {
 			var content []byte
 			err := rows.Scan(&content)
 			if err != nil {
 				return err
 			}
-			_, err = mw.Write(content)
+			_, err = contentMw.Write(content)
 			if err != nil {
 				return err
 			}
@@ -46,20 +71,33 @@ func (bh *bodyHandler) makeDict() error {
 			return err
 		}
 
-		newFileName := path.Join(DICT_PATH, hex.EncodeToString(hash.Sum(nil)))
-		err := ioutil.WriteFile(newFileName, buf.Bytes(), 0644)
+		log.Println("Here")
+
+		hashHex := hex.EncodeToString(hash.Sum(nil))
+		newFileName := path.Join(DICT_PATH, hashHex)
+		if newFileName == bh.DictName() {
+			return errNoChange
+		}
+
+		err := ioutil.WriteFile(newFileName, contentBuf.Bytes(), 0644)
+		if err != nil {
+			return err
+		}
+		newHdrFileName := path.Join(DICT_HDR_PATH, hashHex)
+		err = ioutil.WriteFile(newHdrFileName, headerBuf.Bytes(), 0644)
 		if err != nil {
 			return err
 		}
 
-		if newFileName == bh.dictFileName {
-			return errNoChange
-		}
-
-		oldName := bh.dictFileName
-		bh.dictFileName = newFileName
+		oldName := bh.DictName()
+		bh.SetDictName(newFileName)
+		bh.SetDictHdrName(newHdrFileName)
 		if len(oldName) > 0 {
 			err := os.Remove(oldName)
+			if err != nil {
+				return err
+			}
+			err = os.Remove(path.Join(DICT_HDR_PATH, path.Base(oldName)))
 			if err != nil {
 				return err
 			}
@@ -67,7 +105,10 @@ func (bh *bodyHandler) makeDict() error {
 		return nil
 	}()
 
+	log.Println("After")
+
 	if err == errNoChange {
+		log.Println("No change")
 		return nil
 	}
 
@@ -75,7 +116,7 @@ func (bh *bodyHandler) makeDict() error {
 		return err
 	}
 
-	st, err := os.Stat(bh.dictFileName)
+	st, err := os.Stat(bh.DictName())
 	if err != nil {
 		return err
 	}
@@ -84,41 +125,21 @@ func (bh *bodyHandler) makeDict() error {
 	return nil
 }
 
-func (bh bodyHandler) makeSdchDict(hostPort, dictName string) (dict io.ReadSeeker, modTime time.Time, err error) {
+func (bh bodyHandler) makeSdchDict() (dict io.ReadSeeker, modTime time.Time, err error) {
 
-	if dictName != path.Base(bh.dictFileName) {
-		return nil, time.Time{}, fmt.Errorf("Not found!")
+	dictHdr, err1 := os.Open(bh.DictHdrName())
+	dictContent, err2 := os.Open(bh.DictName())
+	if err1 != nil || err2 != nil {
+		return nil, time.Time{}, fmt.Errorf("Couldn't read files: %s -- %s", err1, err2)
 	}
-
-	host, port, err := net.SplitHostPort(hostPort)
+	st, err := dictContent.Stat()
 	if err != nil {
 		return nil, time.Time{}, err
-	}
-	if port == "" {
-		port = "80"
 	}
 
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "Domain: %s\n", host)
-	fmt.Fprint(&buf, "Path: /\n")
-	fmt.Fprint(&buf, "Format-Version: 1.0\n")
-	fmt.Fprintf(&buf, "Port: %s\n", port)
-	fmt.Fprint(&buf, "Max-Age: 86400\n\n")
-
-	dictFile, err := os.Open(bh.dictFileName)
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-	defer dictFile.Close()
-	_, err = io.Copy(&buf, dictFile)
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-	st, err := dictFile.Stat()
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-
+	io.Copy(&buf, dictHdr)
+	io.Copy(&buf, dictContent)
 	return bytes.NewReader(buf.Bytes()), st.ModTime(), nil
 }
 
