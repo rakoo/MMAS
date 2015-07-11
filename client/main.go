@@ -56,7 +56,6 @@ func downloadDict(url string) {
 
 func main() {
 	proxy := goproxy.NewProxyHttpServer()
-	proxy.Verbose = true
 
 	proxy.OnRequest().DoFunc(func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 		r.Header.Add("Accept-Encoding", "sdch")
@@ -139,6 +138,8 @@ func main() {
 		r.Body = ioutil.NopCloser(&out)
 		return r
 	})
+
+	proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
 
 	os.Mkdir("dicts", 0755)
 	dir, err := os.Open("dicts")
