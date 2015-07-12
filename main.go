@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -75,9 +76,34 @@ func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Res
 	// Set it to not-sdch-encoded by default
 	r.Header.Set("X-Sdch-Encode", "0")
 
-	content, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return r
+	var content []byte
+	var err error
+
+	// Un-gzip on the fly
+	if r.Header.Get("Content-Encoding") == "gzip" {
+		gzr, err := gzip.NewReader(r.Body)
+		if err != nil {
+			return r
+		}
+
+		content, err = ioutil.ReadAll(gzr)
+		if err != nil {
+			return r
+		}
+		gzr.Close()
+
+		var buf bytes.Buffer
+		gzw := gzip.NewWriter(&buf)
+		gzw.Write(content)
+		gzw.Close()
+		r.Body = ioutil.NopCloser(&buf)
+
+	} else {
+		content, err = ioutil.ReadAll(r.Body)
+		if err != nil {
+			return r
+		}
+		r.Body = ioutil.NopCloser(bytes.NewReader(content))
 	}
 
 	go func() {
@@ -96,8 +122,6 @@ func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Res
 		}
 	}()
 
-	r.Body = ioutil.NopCloser(bytes.NewReader(content))
-
 	if len(bh.DictName()) > 0 {
 
 		// Build Get-Dictionary header
@@ -112,7 +136,7 @@ func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Res
 		r.Header.Set("Get-Dictionary", dictUrl)
 
 		// Check if client can SDCH
-		acceptedEncodings := ctx.Req.Header["Accept-Encoding"]
+		acceptedEncodings := r.Request.Header["Accept-Encoding"]
 		canSdch := false
 		for _, line := range acceptedEncodings {
 			for _, enc := range strings.Split(line, ",") {
@@ -155,13 +179,33 @@ func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Res
 			return r
 		}
 		if len(compressedBodyContent) < len(content) {
-			r.Header.Set("Content-Type", "sdch")
 			r.Header.Del("X-Sdch-Encode")
-			newBody = ioutil.NopCloser(bytes.NewBuffer(compressedBodyContent))
-			r.Body = newBody
 
-			statsBytesSent += uint64(len(compressedBodyContent))
-			statsBytesOriginal += uint64(len(content))
+			if r.Header.Get("Content-Encoding") == "gzip" {
+				var buf bytes.Buffer
+				gzw := gzip.NewWriter(&buf)
+				gzw.Write(compressedBodyContent)
+				gzw.Close()
+				newBody = ioutil.NopCloser(&buf)
+				r.Header.Set("Content-Encoding", "sdch, gzip")
+
+				statsBytesSent += uint64(buf.Len())
+
+				var origBuf bytes.Buffer
+				origGzw := gzip.NewWriter(&origBuf)
+				origGzw.Write(content)
+				origGzw.Close()
+				statsBytesOriginal += uint64(origBuf.Len())
+
+				ratio := 100 * float64(buf.Len()) / float64(origBuf.Len())
+				log.Printf("After gzip: %d -> %d (%f %%)\n", origBuf.Len(), buf.Len(), ratio)
+
+			} else {
+				newBody = ioutil.NopCloser(bytes.NewBuffer(compressedBodyContent))
+				statsBytesSent += uint64(len(compressedBodyContent))
+				statsBytesOriginal += uint64(len(content))
+			}
+			r.Body = newBody
 
 			saved := 100 * (1 - float64(statsBytesSent)/float64(statsBytesOriginal))
 			log.Printf("Reduced bytes on wire by %f %%\n", saved)
