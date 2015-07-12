@@ -20,6 +20,7 @@ const (
 )
 
 func (bh *bodyHandler) parseResponse(body []byte) (changed bool, err error) {
+
 	startParse := time.Now()
 
 	rs := rollsum.New()
@@ -36,6 +37,7 @@ func (bh *bodyHandler) parseResponse(body []byte) (changed bool, err error) {
 		return false, err
 	}
 
+	known := 0
 	for {
 		b, err := rd.ReadByte()
 		if err != nil {
@@ -49,8 +51,13 @@ func (bh *bodyHandler) parseResponse(body []byte) (changed bool, err error) {
 		buf = append(buf, b)
 		if rs.OnSplitWithBits(5) {
 			h := sha1.Sum(buf)
-			_, err := stmt.Exec(buf, h[:], h[:])
+			var s int
+			bh.db.QueryRow(`SELECT LENGTH(content) FROM chunks WHERE hash = ?`, h[:]).Scan(&s)
+			known += s
+
+			_, err = stmt.Exec(buf, h[:], h[:])
 			if err != nil {
+				log.Println("HERE")
 				return false, err
 			}
 			buf = buf[:0]
@@ -60,6 +67,8 @@ func (bh *bodyHandler) parseResponse(body []byte) (changed bool, err error) {
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
+
+	log.Printf("Best match: %d bytes on %d\n", known, len(body))
 
 	log.Printf("Parsed response in %v ms\n", time.Since(startParse).Seconds()*1000)
 
