@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -82,6 +83,14 @@ func main() {
 		_, err := os.Stat(path.Join("dicts", dictName))
 		if err != nil {
 			if os.IsNotExist(err) {
+				u, err := url.Parse(dictUrl)
+				if err != nil {
+					log.Println(err)
+					return r
+				}
+				if u.Scheme == "" {
+					dictUrl = "http://" + r.Request.Host + dictUrl
+				}
 				downloadDict(dictUrl)
 			}
 			return r
