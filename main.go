@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/elazarl/goproxy"
-	"github.com/kr/pretty"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -82,8 +81,7 @@ func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Res
 	}
 
 	go func() {
-		log.Println("Parsing against", r.Request.Host, r.Request.URL.Path)
-		_, err = bh.parseResponse(content)
+		_, err := bh.parseResponse(content)
 		if err != nil {
 			log.Println("Error parsing content:", err)
 			return
@@ -128,7 +126,6 @@ func (bh *bodyHandler) handle(r *http.Response, ctx *goproxy.ProxyCtx) *http.Res
 			return r
 		}
 
-		pretty.Println(r.Request.Header)
 		// Like Chromium, we only take the first one
 		availDicts := r.Request.Header.Get("Avail-Dictionary")
 		split := strings.Split(availDicts, ",")

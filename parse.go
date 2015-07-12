@@ -92,7 +92,6 @@ func (bh *bodyHandler) parseResponse(body []byte) (changed bool, err error) {
 		return false, err
 	}
 
-	log.Println(len(bh.topChunk), len(top10))
 	if len(bh.topChunk) == 0 && len(top10) > 0 {
 		bh.topChunk = top10[0]
 		return true, nil

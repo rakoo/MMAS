@@ -71,8 +71,6 @@ func (bh *bodyHandler) makeDict(reqHost string) error {
 			return err
 		}
 
-		log.Println("Here")
-
 		hashHex := hex.EncodeToString(hash.Sum(nil))
 		newFileName := path.Join(DICT_PATH, hashHex)
 		if newFileName == bh.DictName() {
@@ -104,8 +102,6 @@ func (bh *bodyHandler) makeDict(reqHost string) error {
 		}
 		return nil
 	}()
-
-	log.Println("After")
 
 	if err == errNoChange {
 		log.Println("No change")
