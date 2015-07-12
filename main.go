@@ -220,7 +220,7 @@ var last = time.Now()
 func main() {
 	proxy := goproxy.NewProxyHttpServer()
 
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite3", "memory")
 	if err != nil {
 		log.Fatal(err)
 	}
