@@ -253,6 +253,7 @@ func main() {
 		r.Header.Set("X-Sdch-Encoding", "0")
 		return r
 	})
+	proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
 
 	err = os.Mkdir(DICT_PATH, 0755)
 	if err != nil && !os.IsExist(err) {
