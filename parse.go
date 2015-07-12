@@ -91,10 +91,10 @@ func (bh *bodyHandler) parseResponse(body []byte) (changed bool, err error) {
 
 	for _, newInTop := range top10 {
 		if bytes.Compare(bh.topChunk, newInTop) == 0 {
-			bh.topChunk = newInTop
-			return true, nil
+			return false, nil
 		}
 	}
 
-	return false, nil
+	bh.topChunk = top10[0]
+	return true, nil
 }
