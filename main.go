@@ -247,6 +247,12 @@ func main() {
 		goproxy.ContentTypeIs("text/html"),
 		goproxy.ReqHostMatches(matchPath),
 	).DoFunc(bh.handle)
+	proxy.OnResponse(
+		goproxy.ReqHostMatches(matchPath),
+	).DoFunc(func(r *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+		r.Header.Set("X-Sdch-Encoding", "0")
+		return r
+	})
 
 	err = os.Mkdir(DICT_PATH, 0755)
 	if err != nil && !os.IsExist(err) {
