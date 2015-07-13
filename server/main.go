@@ -10,15 +10,16 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/rakoo/mmas/pkg/dict"
 )
 
 type SDCHProxy struct {
-	proxy *httputil.ReverseProxy
-	d     *dict.Dict
-	u     *url.URL
+	proxy  *httputil.ReverseProxy
+	d      *dict.Dict
+	target *url.URL
 }
 
 func newSDCHProxy(target *url.URL) SDCHProxy {
@@ -34,16 +35,24 @@ func newSDCHProxy(target *url.URL) SDCHProxy {
 		log.Fatal(err)
 	}
 	return SDCHProxy{
-		proxy: iproxy,
-		d:     d,
-		u:     target,
+		proxy:  iproxy,
+		d:      d,
+		target: target,
 	}
 }
 
 func (s SDCHProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/_sdch") {
+		s.serveDict(w, r)
+		return
+	}
+
 	canSdch := false
 	w.Header().Set("X-Sdch-Encode", "0")
-	w.Header().Set("Get-Dictionary", "/_sdch/dictraw")
+
+	if len(s.d.SdchHeader) > 0 {
+		w.Header().Set("Get-Dictionary", "/_sdch/dictraw")
+	}
 
 	aes := r.Header["Accept-Encoding"]
 	for _, ae := range aes {
@@ -104,7 +113,9 @@ func (s SDCHProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	diff, err := s.d.Eat(workContent)
 	if err != nil {
-		log.Println("Error eating:", err)
+		if err != dict.ErrNoDict {
+			log.Println("Error eating:", err)
+		}
 		// If all else fails, return original response
 		w.Write(originalContent)
 		return
@@ -126,6 +137,36 @@ func (s SDCHProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(originalContent)
 }
 
+func (s SDCHProxy) serveDict(w http.ResponseWriter, r *http.Request) {
+	var buf bytes.Buffer
+	_, err := buf.Write(s.d.SdchHeader)
+	if err != nil {
+		httpError(w)
+		return
+	}
+
+	name := strings.Replace(r.URL.Path, "/_sdch/", "", 1)
+	f, err := os.Open(name)
+	if err != nil {
+		httpError(w)
+		return
+	}
+
+	_, err = io.Copy(&buf, f)
+	if err != nil {
+		httpError(w)
+		return
+	}
+
+	st, err := f.Stat()
+	if err != nil {
+		httpError(w)
+		return
+	}
+
+	http.ServeContent(w, r, "", st.ModTime(), bytes.NewReader(buf.Bytes()))
+}
+
 // Same as httputil/reverseproxy.go
 func copyHeader(dst, src http.Header) {
 	for k, vv := range src {
@@ -145,11 +186,6 @@ func main() {
 		log.Fatal(err)
 	}
 	proxy := newSDCHProxy(u)
-	http.Handle("/", proxy)
-	http.HandleFunc("/_sdch", func(w http.ResponseWriter, r *http.Request) {
-		name := strings.Replace(r.URL.Path, "/_sdch/", "", 1)
-		http.ServeFile(w, r, name)
-	})
 
 	log.Println("Let's go !")
 	log.Fatal(http.ListenAndServe(":8080", proxy))

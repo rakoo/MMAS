@@ -3,8 +3,11 @@ package dict
 import (
 	"bytes"
 	"crypto/sha1"
+	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -25,14 +28,21 @@ const (
 	);`
 )
 
+var (
+	ErrNoDict = errors.New("No dictionary")
+)
+
 type Dict struct {
 	db *sql.DB
 
 	sdchDictChunks [][]byte
+	sdchFullHash   []byte
 
 	// stats
 	totalBytesDup uint64
 	totalBytesIn  uint64
+
+	SdchHeader []byte
 }
 
 func New() (*Dict, error) {
@@ -63,6 +73,17 @@ CREATE TABLE IF NOT EXISTS chunks (
 
 func (d *Dict) Eat(content []byte) (diff []byte, err error) {
 
+	go func() {
+		err := d.parse(content)
+		if err != nil {
+			log.Println("Error parsing:", err)
+		}
+	}()
+
+	if len(d.SdchHeader) == 0 {
+		return nil, ErrNoDict
+	}
+
 	var diffBuf bytes.Buffer
 	cmd := exec.Command("vcdiff", "delta", "-dictionary", "dictraw", "-interleaved", "-stats", "-checksum")
 	cmd.Stdin = bytes.NewReader(content)
@@ -73,14 +94,8 @@ func (d *Dict) Eat(content []byte) (diff []byte, err error) {
 	}
 	diff = diffBuf.Bytes()
 
-	go func() {
-		err := d.parse(content)
-		if err != nil {
-			log.Println("Error parsing:", err)
-		}
-	}()
-
 	return diff, nil
+
 }
 
 func (d *Dict) parse(content []byte) error {
@@ -152,6 +167,20 @@ func (d *Dict) makeDict() error {
 			return err
 		}
 		d.sdchDictChunks = hashes
+
+		hash := sha256.New()
+		var buf bytes.Buffer
+		mw := io.MultiWriter(&buf, hash)
+		fmt.Fprint(mw, "Domain: localhost\n")
+		fmt.Fprint(mw, "Path: /\n")
+		fmt.Fprint(mw, "Format-Version: 1.0\n")
+		fmt.Fprint(mw, "Port: 8080\n")
+		fmt.Fprint(mw, "Max-Age: 86400\n\n")
+
+		d.SdchHeader = buf.Bytes()
+
+		hash.Write(contents)
+		d.sdchFullHash = hash.Sum(nil)
 	}
 	return nil
 }
