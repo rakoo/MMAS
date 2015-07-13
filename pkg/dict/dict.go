@@ -181,8 +181,7 @@ func (d *Dict) needToUpdate() (contents []byte, hashes [][]byte, change bool) {
 
 	sort.Sort(sliceslice(hashes))
 	if d.sdchDictChunks == nil || len(d.sdchDictChunks) == 0 {
-		d.sdchDictChunks = hashes
-		return nil, nil, false
+		return contents, hashes, true
 	}
 
 	var uniq int
