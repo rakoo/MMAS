@@ -107,8 +107,6 @@ func (s SDCHProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//log.Println(s.d.Stats())
-
 	// If all else fails, return original response
 	w.Write(originalContent)
 }
