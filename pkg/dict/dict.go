@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
+	"os/exec"
 	"sort"
 
 	"camlistore.org/pkg/rollsum"
@@ -59,7 +61,29 @@ CREATE TABLE IF NOT EXISTS chunks (
 	}, nil
 }
 
-func (d *Dict) Eat(content []byte) error {
+func (d *Dict) Eat(content []byte) (diff []byte, err error) {
+
+	var diffBuf bytes.Buffer
+	cmd := exec.Command("vcdiff", "delta", "-dictionary", "dictraw", "-interleaved", "-stats", "-checksum")
+	cmd.Stdin = bytes.NewReader(content)
+	cmd.Stdout = &diffBuf
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	diff = diffBuf.Bytes()
+
+	go func() {
+		err := d.parse(content)
+		if err != nil {
+			log.Println("Error parsing:", err)
+		}
+	}()
+
+	return diff, nil
+}
+
+func (d *Dict) parse(content []byte) error {
 	rs := rollsum.New()
 
 	var match uint64
@@ -122,6 +146,7 @@ func (d *Dict) Eat(content []byte) error {
 func (d *Dict) makeDict() error {
 	contents, hashes, change := d.needToUpdate()
 	if change {
+		log.Println("Changing dict")
 		err := ioutil.WriteFile("dictraw", contents, 0644)
 		if err != nil {
 			return err
@@ -177,8 +202,6 @@ func (d *Dict) needToUpdate() (contents []byte, hashes [][]byte, change bool) {
 		}
 		last = fromAll
 	}
-
-	log.Printf("Got %d new out of %d\n", uniq, len(d.sdchDictChunks))
 
 	return contents, hashes, float64(uniq)/float64(len(d.sdchDictChunks)) > float64(0.1)
 }

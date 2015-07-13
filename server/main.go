@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"compress/gzip"
 	"io"
 	"io/ioutil"
@@ -41,6 +42,8 @@ func newSDCHProxy(target *url.URL) SDCHProxy {
 
 func (s SDCHProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	canSdch := false
+	w.Header().Set("X-Sdch-Encode", "0")
+	w.Header().Set("Get-Dictionary", "/_sdch/dictraw")
 
 	aes := r.Header["Accept-Encoding"]
 	for _, ae := range aes {
@@ -99,13 +102,25 @@ func (s SDCHProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	err := s.d.Eat(workContent)
+	diff, err := s.d.Eat(workContent)
 	if err != nil {
 		log.Println("Error eating:", err)
 		// If all else fails, return original response
 		w.Write(originalContent)
 		return
 	}
+
+	newContent := originalContent
+	if hasGzip {
+		var buf bytes.Buffer
+		gzw := gzip.NewWriter(&buf)
+		gzw.Write(diff)
+		gzw.Flush()
+		newContent = buf.Bytes()
+	}
+
+	ratio := 100 * float64(len(newContent)) / float64(len(originalContent))
+	log.Printf("Ratio: %d/%d (%f%%)", len(newContent), len(originalContent), ratio)
 
 	// If all else fails, return original response
 	w.Write(originalContent)
@@ -130,6 +145,11 @@ func main() {
 		log.Fatal(err)
 	}
 	proxy := newSDCHProxy(u)
+	http.Handle("/", proxy)
+	http.HandleFunc("/_sdch", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.Replace(r.URL.Path, "/_sdch/", "", 1)
+		http.ServeFile(w, r, name)
+	})
 
 	log.Println("Let's go !")
 	log.Fatal(http.ListenAndServe(":8080", proxy))
