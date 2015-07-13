@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/rakoo/mmas/pkg/dict"
@@ -136,8 +137,31 @@ func (s SDCHProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ratio := 100 * float64(len(newContent)) / float64(len(originalContent))
 	log.Printf("Ratio: %d/%d (%f%%)", len(newContent), len(originalContent), ratio)
 
-	// If all else fails, return original response
-	w.Write(originalContent)
+	if len(newContent) > len(originalContent) {
+		w.Write(originalContent)
+		return
+	}
+
+	// Like Chrome, we only take the first one
+	uaId := r.Header.Get("Avail-Dictionary")
+	if len(uaId) == 0 || uaId != string(s.d.UserAgentId()) {
+		log.Printf("UA wants %s, we have %s\n", uaId, s.d.UserAgentId())
+		w.Write(originalContent)
+		return
+	}
+
+	w.Header().Set("Content-Encoding", "sdch")
+	if hasGzip {
+		w.Header().Add("Content-Encoding", "gzip")
+	}
+	w.Header().Del("X-Sdch-Encode")
+
+	serverId := s.d.ServerId()
+	cl := strconv.Itoa(len(serverId) + 1 + len(newContent))
+	w.Header().Set("Content-Length", cl)
+	w.Write(serverId)
+	w.Write([]byte{0})
+	w.Write(newContent)
 }
 
 func (s SDCHProxy) serveDict(w http.ResponseWriter, r *http.Request) {
