@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/rakoo/mmas/pkg/dict"
@@ -51,7 +53,8 @@ func (s SDCHProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Sdch-Encode", "0")
 
 	if len(s.d.SdchHeader) > 0 {
-		w.Header().Set("Get-Dictionary", "/_sdch/dictraw")
+		path := fmt.Sprintf("/_sdch/%s", s.d.DictName())
+		w.Header().Set("Get-Dictionary", path)
 	}
 
 	aes := r.Header["Accept-Encoding"]
@@ -146,7 +149,7 @@ func (s SDCHProxy) serveDict(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := strings.Replace(r.URL.Path, "/_sdch/", "", 1)
-	f, err := os.Open(name)
+	f, err := os.Open(path.Join("dicts", name))
 	if err != nil {
 		httpError(w)
 		return
@@ -164,6 +167,7 @@ func (s SDCHProxy) serveDict(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/x-sdch-dictionary")
 	http.ServeContent(w, r, "", st.ModTime(), bytes.NewReader(buf.Bytes()))
 }
 

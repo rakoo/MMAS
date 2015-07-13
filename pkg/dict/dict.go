@@ -5,6 +5,8 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +14,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path"
 	"sort"
 
 	"camlistore.org/pkg/rollsum"
@@ -71,6 +74,30 @@ CREATE TABLE IF NOT EXISTS chunks (
 	}, nil
 }
 
+func (d *Dict) UserAgentId() []byte {
+	if len(d.sdchFullHash) == 0 {
+		return []byte{}
+	}
+	return based(d.sdchFullHash[6:12])
+}
+
+func (d *Dict) ServerId() []byte {
+	if len(d.sdchFullHash) == 0 {
+		return []byte{}
+	}
+	return based(d.sdchFullHash[:6])
+}
+
+func based(in []byte) []byte {
+	dst := make([]byte, base64.URLEncoding.EncodedLen(len(in)))
+	base64.URLEncoding.Encode(dst, in)
+	return dst
+}
+
+func (d *Dict) DictName() string {
+	return hex.EncodeToString(d.sdchFullHash)
+}
+
 func (d *Dict) Eat(content []byte) (diff []byte, err error) {
 
 	go func() {
@@ -84,8 +111,9 @@ func (d *Dict) Eat(content []byte) (diff []byte, err error) {
 		return nil, ErrNoDict
 	}
 
+	dictpath := path.Join("dicts", hex.EncodeToString(d.sdchFullHash))
 	var diffBuf bytes.Buffer
-	cmd := exec.Command("vcdiff", "delta", "-dictionary", "dictraw", "-interleaved", "-stats", "-checksum")
+	cmd := exec.Command("vcdiff", "delta", "-dictionary", dictpath, "-interleaved", "-stats", "-checksum")
 	cmd.Stdin = bytes.NewReader(content)
 	cmd.Stdout = &diffBuf
 	cmd.Stderr = os.Stderr
@@ -95,7 +123,6 @@ func (d *Dict) Eat(content []byte) (diff []byte, err error) {
 	diff = diffBuf.Bytes()
 
 	return diff, nil
-
 }
 
 func (d *Dict) parse(content []byte) error {
@@ -162,10 +189,6 @@ func (d *Dict) makeDict() error {
 	contents, hashes, change := d.needToUpdate()
 	if change {
 		log.Println("Changing dict")
-		err := ioutil.WriteFile("dictraw", contents, 0644)
-		if err != nil {
-			return err
-		}
 		d.sdchDictChunks = hashes
 
 		hash := sha256.New()
@@ -180,7 +203,14 @@ func (d *Dict) makeDict() error {
 		d.SdchHeader = buf.Bytes()
 
 		hash.Write(contents)
+		h := hash.Sum(nil)
 		d.sdchFullHash = hash.Sum(nil)
+
+		dictpath := path.Join("dicts", hex.EncodeToString(h))
+		err := ioutil.WriteFile(dictpath, contents, 0644)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
