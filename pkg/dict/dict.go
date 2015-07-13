@@ -179,31 +179,31 @@ func (d *Dict) needToUpdate() (contents []byte, hashes [][]byte, change bool) {
 		return nil, nil, false
 	}
 
+	sort.Sort(sliceslice(hashes))
 	if d.sdchDictChunks == nil || len(d.sdchDictChunks) == 0 {
 		d.sdchDictChunks = hashes
 		return nil, nil, false
 	}
 
-	all := make([][]byte, len(d.sdchDictChunks)+len(hashes))
-	copy(all, d.sdchDictChunks)
-	copy(all[len(all):], hashes)
-	sort.Sort(sliceslice(all))
+	var uniq int
+	for _, newHash := range hashes {
+		var exactMatch bool
+		sort.Search(len(d.sdchDictChunks), func(i int) bool {
+			cmp := bytes.Compare(d.sdchDictChunks[i], newHash)
+			if cmp == 0 {
+				exactMatch = true
+			}
+			return cmp >= 0
+		})
 
-	last := all[0]
-	uniq := 0
-	isDup := false
-	for _, fromAll := range all[1:] {
-		if bytes.Compare(last, fromAll) == 0 {
-			isDup = true
-			continue
-		}
-		if !isDup {
+		if !exactMatch {
 			uniq++
 		}
-		last = fromAll
 	}
 
-	return contents, hashes, float64(uniq)/float64(len(d.sdchDictChunks)) > float64(0.1)
+	ratio := float64(uniq) / float64(len(d.sdchDictChunks))
+	log.Printf("Got %d uniques out of %d (%f%%)", uniq, len(d.sdchDictChunks), 100*ratio)
+	return contents, hashes, ratio > float64(0.1)
 }
 
 func (d *Dict) Stats() string {
